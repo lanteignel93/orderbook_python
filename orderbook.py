@@ -72,7 +72,7 @@ class OrderBook:
 
     def __call__(self, *args, **kwargs):
         if len(kwargs) == 0 and len(args) == 0:
-            return pprint.pprint(self.hash_map)
+            self.hash_map
 
         if len(kwargs) > 0 and len(args) > 0 or len(kwargs) > 1 or len(args) > 1:
             raise ValueError("Only one input is valid.")

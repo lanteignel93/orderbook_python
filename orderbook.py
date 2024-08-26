@@ -5,9 +5,18 @@ from collections import ChainMap
 from enum import Enum
 
 
+class MissingOrder(Exception):
+    pass
+
+
 class OrderSide(Enum):
     BUY = "BUY"
     SELL = "SELL"
+
+
+class OrderType(Enum):
+    MARKET = "MARKET"
+    LIMIT = "LIMIT"
 
 
 class OrderBookDic(ChainMap):
@@ -31,14 +40,23 @@ class OrderBookDic(ChainMap):
 class Order:
     id_iter = itertools.count()
 
-    def __init__(self, price: float, time: datetime.datetime, side: OrderSide) -> None:
+    def __init__(
+        self,
+        price: float,
+        qty: int,
+        time: datetime.datetime,
+        side: OrderSide,
+        type_: OrderType,
+    ) -> None:
         self.price = price
         self.time = time
         self.side = side
+        self.qty = qty
+        self.type_ = type_
         self.id = next(self.id_iter)
 
     def __repr__(self) -> str:
-        return f"Order(price={self.price:.4f}$, {self.time}, side={self.side.value}, id={self.id})"
+        return f"Order(price={self.price:.4f}$, qty= {self.qty}, {self.time}, side={self.side.value}, type={self.type_.value}, id={self.id})"
 
 
 class OrderBook:
@@ -78,18 +96,18 @@ class OrderBook:
 
         if len(kwargs) == 1:
             try:
-                type = kwargs.pop("type")
+                _type = kwargs.pop("type")
 
             except KeyError:
                 raise KeyError("Wrong keyword argument, only type allowed.")
 
         if len(args) == 1 and len(kwargs) == 0:
-            type = args[0]
+            _type = args[0]
 
-        if type == "buy":
+        if _type == "buy":
             return self.buy_dic
 
-        elif type == "sell":
+        elif _type == "sell":
             return self.sell_dic
 
         else:
@@ -123,25 +141,68 @@ class OrderBook:
             case OrderSide.BUY:
                 if len(self.bid) == 0:
                     return None
-
                 val = self.bid[0]
-                self.bid.remove(self.bid[0])
 
             case OrderSide.SELL:
                 if len(self.ask) == 0:
                     return None
-
                 val = self.ask[0]
-                self.ask.remove(self.ask[0])
 
             case _:
                 raise NotImplementedError("Wrong Side, needs to buy BUY or SELL.")
-        try:
-            del self.hash_map[val.id]
-        except KeyError:
-            raise KeyError(f"Invalid Order ID ({val.id})")
 
         return val
+
+    def delete_order(self, order: Order) -> None:
+        match order.side:
+            case OrderSide.BUY:
+                self.bid.remove(self.bid[0])
+
+            case OrderSide.SELL:
+                self.ask.remove(self.ask[0])
+
+            case _:
+                raise NotImplementedError("Wrong Side, needs to be BUY or SELL.")
+        try:
+            del self.hash_map[order.id]
+        except KeyError:
+            raise KeyError(f"Invalid Order ID ({order.id})")
+
+    def _process_order(self, order: Order):
+        match order.type_:
+            case OrderType.LIMIT:
+                self._process_lmt(order)
+            case OrderType.MARKET:
+                self._process_mkt(order)
+            case _:
+                raise NotImplementedError(
+                    "Wrong OrderType, needs to be limit or market."
+                )
+
+    def _process_mkt(self, order: Order):
+        match order.side:
+            case OrderSide.BUY:
+                if len(self.ask) == 0:
+                    raise MissingOrder("No Order to fill, canceling order.")
+                side = OrderSide.SELL
+            case OrderSide.SELL:
+                if len(self.bid) == 0:
+                    raise MissingOrder("No Order to fill, canceling order.")
+                side = OrderSide.BUY
+        while order.qty > 0:
+            book_order = self.pop(side=side)
+
+            qty_fill = min(order.qty, book_order.qty)
+            order.qty -= qty_fill
+            book_order.qty -= qty_fill
+
+            if book_order.qty < abs(0.0001):
+                self.delete_order(book_order)
+
+        return None
+
+    def _process_lmt(self, order: Order):
+        pass
 
     def get(self, id: int) -> Order | None:
         try:

@@ -202,7 +202,46 @@ class OrderBook:
         return None
 
     def _process_lmt(self, order: Order):
-        pass
+        match order.side:
+            case OrderSide.BUY:
+                top_book = self.pop(side=OrderSide.SELL)
+
+                while order.qty > 0 and top_book.price <= order.price:
+                    qty_fill = min(order.qty, top_book.qty)
+                    order.qty -= qty_fill
+                    top_book.qty -= qty_fill
+
+                    if top_book.qty < abs(0.0001):
+                        self.delete_order(top_book)
+                        top_book = self.pop(side=OrderSide.SELL)
+                    else:
+                        break
+
+                if order.qty > 0:
+                    self._insert(order)
+
+            case OrderSide.SELL:
+                top_book = self.pop(side=OrderSide.BUY)
+
+                while order.qty > 0 and top_book.price >= order.price:
+                    qty_fill = min(order.qty, top_book.qty)
+                    order.qty -= qty_fill
+                    top_book.qty -= qty_fill
+
+                    if top_book.qty < abs(0.0001):
+                        self.delete_order(top_book)
+                        top_book = self.pop(side=OrderSide.BUY)
+
+                    else:
+                        break
+
+                if order.qty > 0:
+                    self._insert(order)
+
+            case _:
+                raise NotImplementedError(
+                    "Wrong OrderType, needs to be limit or market."
+                )
 
     def get(self, id: int) -> Order | None:
         try:
